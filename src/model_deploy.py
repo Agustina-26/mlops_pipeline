@@ -17,7 +17,8 @@ from pydantic import BaseModel, Field
 from ft_engineering import DATE_COLUMN, TARGET, create_features
 
 
-MODEL_PATH = Path(os.getenv("MODEL_PATH", "models/random_forest_v1.joblib"))
+# En local se encuentra junto a este script; en Docker ambos se copian a /app.
+MODEL_PATH = Path(os.getenv("MODEL_PATH", str(Path(__file__).with_name("random_forest_v1.joblib"))))
 REQUIRED_RAW_COLUMNS = [
     "tipo_credito", "fecha_prestamo", "capital_prestado", "plazo_meses", "edad_cliente",
     "tipo_laboral", "salario_cliente", "total_otros_prestamos", "cuota_pactada",

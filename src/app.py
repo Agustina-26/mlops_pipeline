@@ -18,8 +18,8 @@ st.set_page_config(page_title="Monitoreo de modelo", page_icon="📊", layout="w
 
 def find_base_data() -> Path | None:
     candidates = [
-        Path.cwd() / "base_datos.csv",
-        Path(r"C:/Users/Usuario/OneDrive/Desktop/ProyectoM5/mlops_pipeline/src/base_datos.csv"),
+        Path.cwd() / "Base_de_datos.csv",
+        Path(__file__).resolve().parent.parent / "Base_de_datos.csv",
     ]
     return next((path for path in candidates if path.exists()), None)
 

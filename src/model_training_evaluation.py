@@ -12,12 +12,10 @@ from sklearn.ensemble import RandomForestClassifier
 from ft_engineering import build_model, get_feature_groups, split_train_test
 
 
-DEFAULT_DATA_PATHS = [
-    Path("base_datos.csv"),
-    Path(r"C:/Users/Usuario/OneDrive/Desktop/ProyectoM5/mlops_pipeline/src/base_datos.csv"),
-]
-MODEL_PATH = Path("models/random_forest_v1.joblib")
-METADATA_PATH = Path("models/random_forest_v1_metadata.json")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATA_PATHS = [PROJECT_ROOT / "Base_de_datos.csv"]
+MODEL_PATH = Path(__file__).with_name("random_forest_v1.joblib")
+METADATA_PATH = Path(__file__).with_name("random_forest_v1_metadata.json")
 
 
 def find_data_path() -> Path:

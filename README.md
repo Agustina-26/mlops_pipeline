@@ -10,15 +10,14 @@ Se entrenó un **Random Forest**, seleccionado al comparar modelos supervisados.
 
 | Etapa | Archivo principal |
 |---|---|
-| Carga y exploración | `Comprensión_eda.ipynb` |
-| Ingeniería de características | `ft_engineering.py` |
-| Entrenamiento y evaluación | `Modelamiento_y_Evaluacion.ipynb` |
-| Monitoreo de data drift | `model_monitoring.py` |
-| Aplicación de monitoreo | `app.py` |
-| Entrenamiento del artefacto | `train_model.py` |
-| API de predicción batch | `model_deploy.py` |
+| Carga y exploración | `src/Cargar_Datos.ipynb` y `src/Comprensión_eda.ipynb` |
+| Ingeniería de características | `src/ft_engineering.py` |
+| Entrenamiento y evaluación | `src/model_training_evaluation.py` |
+| Monitoreo de data drift | `src/model_monitoring.py` |
+| Aplicación de monitoreo | `src/app.py` |
+| API de predicción batch | `src/model_deploy.py` |
 
-El modelo almacenado en `models/random_forest_v1.joblib` excluye `puntaje` por posible fuga de información detectada durante el EDA.
+El modelo almacenado en `src/random_forest_v1.joblib` excluye `puntaje` por posible fuga de información detectada durante el EDA.
 
 ## Ejecución local
 
@@ -31,18 +30,19 @@ python -m pip install -r requirements.txt
 Entrenar o regenerar el modelo:
 
 ```powershell
-python train_model.py
+python src/model_training_evaluation.py
 ```
 
 Iniciar la aplicación de monitoreo:
 
 ```powershell
-python -m streamlit run app.py
+python -m streamlit run src/app.py
 ```
 
 Iniciar la API:
 
 ```powershell
+Set-Location src
 python -m uvicorn model_deploy:app --reload
 ```
 
@@ -57,6 +57,8 @@ La documentación interactiva queda disponible en `http://127.0.0.1:8000/docs`.
 Cada predicción devuelve la clase estimada y las probabilidades de pago a tiempo y no pago.
 
 ## Docker
+
+La imagen utiliza `requirements-api.txt`, un conjunto reducido de dependencias para la API. `requirements.txt` se conserva para ejecutar el análisis, Streamlit y los notebooks localmente.
 
 ```powershell
 docker build -t api-pago-tiempo .

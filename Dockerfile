@@ -2,11 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-api.txt .
+RUN pip install --no-cache-dir -r requirements-api.txt
 
-COPY ft_engineering.py model_deploy.py ./
-COPY models ./models
+COPY src/ft_engineering.py src/model_deploy.py src/random_forest_v1.joblib ./
 
 EXPOSE 8000
 
