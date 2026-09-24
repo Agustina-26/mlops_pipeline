@@ -1,0 +1,8 @@
+.git
+__pycache__/
+*.ipynb
+base_datos.csv
+app.py
+model_monitoring.py
+train_model.py
+.streamlit/
