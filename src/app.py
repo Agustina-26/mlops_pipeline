@@ -1,16 +1,15 @@
 """Aplicación Streamlit para monitorear data drift del modelo crediticio."""
 
 from pathlib import Path
+import json
 
+import numpy as np
 import pandas as pd
 import streamlit as st
-from sklearn.ensemble import RandomForestClassifier
 
-from ft_engineering import DATE_COLUMN, TARGET, build_model, create_features, get_feature_groups
+from ft_engineering import DATE_COLUMN
+from model_deploy import REQUIRED_RAW_COLUMNS
 from model_monitoring import DEFAULT_THRESHOLDS, build_prediction_table, detect_data_drift, monitor_by_period, periodic_sample
-
-import importlib
-import model_monitoring
 
 
 st.set_page_config(page_title="Monitoreo de modelo", page_icon="📊", layout="wide")
@@ -30,14 +29,9 @@ def load_csv(path: str) -> pd.DataFrame:
 
 
 @st.cache_resource
-def train_reference_model(reference_data: pd.DataFrame):
-    transformed = create_features(reference_data).dropna(subset=[TARGET])
-    X_reference = transformed.drop(columns=[TARGET, DATE_COLUMN], errors="ignore")
-    y_reference = transformed[TARGET].astype(int)
-    numeric_features, categorical_features = get_feature_groups(X_reference)
-    estimator = RandomForestClassifier(n_estimators=300, min_samples_leaf=8, class_weight="balanced", random_state=42, n_jobs=-1)
-    return build_model(estimator, numeric_features, categorical_features).fit(X_reference, y_reference)
-
+def load_deployed_model():
+    import joblib
+    return joblib.load(Path(__file__).with_name("model.joblib"))
 
 st.title("📊 Monitoreo de data drift")
 st.caption("Comparación entre la población de entrenamiento y datos recientes del modelo de pago a tiempo.")
@@ -50,9 +44,9 @@ if base_path is None:
 base_data = load_csv(str(base_path))
 base_data[DATE_COLUMN] = pd.to_datetime(base_data[DATE_COLUMN], errors="coerce")
 base_data = base_data.dropna(subset=[DATE_COLUMN]).sort_values(DATE_COLUMN).reset_index(drop=True)
-cutoff = int(len(base_data) * 0.80)
-reference_data = base_data.iloc[:cutoff].copy()
-default_current_data = base_data.iloc[cutoff:].copy()
+metadata = json.loads(Path(__file__).with_name("model_metadata.json").read_text(encoding="utf-8"))
+reference_data = base_data[base_data[DATE_COLUMN] <= pd.Timestamp(metadata["partitions"]["train"]["end"])].copy()
+default_current_data = base_data[base_data[DATE_COLUMN] >= pd.Timestamp(metadata["partitions"]["test"]["start"])].copy()
 
 with st.sidebar:
     st.header("Configuración")
@@ -69,7 +63,15 @@ else:
     st.info("Se usa el 20% más reciente de la base como período de monitoreo. Podés cargar un CSV para simular datos nuevos.")
 
 thresholds = {**DEFAULT_THRESHOLDS, "psi_alert": psi_alert, "js_alert": js_alert}
-model = train_reference_model(reference_data)
+model = load_deployed_model()
+missing = [c for c in REQUIRED_RAW_COLUMNS if c not in current_data.columns]
+if missing or current_data.empty:
+    st.error(f"CSV vacío o faltan columnas: {missing}")
+    st.stop()
+current_data[DATE_COLUMN] = pd.to_datetime(current_data[DATE_COLUMN], errors="coerce")
+if current_data[DATE_COLUMN].isna().all():
+    st.error("El CSV no contiene fechas válidas.")
+    st.stop()
 prediction_table = build_prediction_table(model, current_data)
 sampled_current = periodic_sample(current_data, sample_size=sample_size)
 drift_report = detect_data_drift(reference_data, sampled_current, thresholds=thresholds)
@@ -84,17 +86,23 @@ metric_3.metric("Variables a revisar", review_count)
 metric_4.metric("Predicciones de no pago", f"{no_payment_rate:.1%}")
 
 st.subheader("Resumen de data drift")
-st.caption("PSI ≥ 0,25 o Jensen-Shannon ≥ 0,10 generan alerta. Un p-valor menor a 0,05 requiere revisión.")
-st.dataframe(drift_report.style.format({"ks_statistic": "{:.3f}", "chi2_statistic": "{:.2f}", "p_value": "{:.4f}", "psi": "{:.3f}", "js_divergence": "{:.3f}"}), use_container_width=True, hide_index=True)
+st.caption("Umbrales configurados en la barra lateral. Jensen-Shannon se expresa como distancia. Un p-valor menor a 0,05 requiere revisión.")
+st.dataframe(drift_report.style.format({"ks_statistic": "{:.3f}", "chi2_statistic": "{:.2f}", "p_value": "{:.4f}", "psi": "{:.3f}", "js_distance": "{:.3f}"}), width="stretch", hide_index=True)
 
 st.subheader("Comparación visual")
 selected_variable = st.selectbox("Variable", drift_report["variable"].tolist())
 left, right = st.columns(2)
 if pd.api.types.is_numeric_dtype(reference_data[selected_variable]):
-    left.caption("Distribución de referencia")
-    left.bar_chart(pd.to_numeric(reference_data[selected_variable], errors="coerce").dropna().value_counts(bins=25, sort=False))
-    right.caption("Distribución de datos recientes")
-    right.bar_chart(pd.to_numeric(current_data[selected_variable], errors="coerce").dropna().value_counts(bins=25, sort=False))
+    ref = pd.to_numeric(reference_data[selected_variable], errors="coerce").dropna()
+    cur = pd.to_numeric(current_data[selected_variable], errors="coerce").dropna()
+    values = pd.concat([ref, cur]).replace([np.inf, -np.inf], np.nan).dropna()
+    if not values.empty:
+        edges = np.histogram_bin_edges(values, bins=25)
+        labels = [f"{a:.3g} a {b:.3g}" for a,b in zip(edges[:-1],edges[1:])]
+        for panel, series, title in [(left,ref,"Referencia"),(right,cur,"Datos recientes")]:
+            counts = np.histogram(series, bins=edges)[0]
+            panel.caption(f"{title}: proporción por intervalo (mismos cortes)")
+            panel.bar_chart(pd.Series(counts/max(counts.sum(),1), index=labels, name="Proporción"))
 else:
     left.caption("Frecuencias de referencia")
     left.bar_chart(reference_data[selected_variable].fillna("Sin dato").astype(str).value_counts())
@@ -104,7 +112,7 @@ else:
 st.subheader("Datos recientes y pronósticos")
 priority_columns = [column for column in ["id_registro", DATE_COLUMN, "prediccion", "probabilidad_no_pago"] if column in prediction_table.columns]
 other_columns = [column for column in prediction_table.columns if column not in priority_columns]
-st.dataframe(prediction_table[priority_columns + other_columns].head(500), use_container_width=True, hide_index=True)
+st.dataframe(prediction_table[priority_columns + other_columns].head(500), width="stretch", hide_index=True)
 st.download_button("Descargar tabla de monitoreo y predicciones", prediction_table.to_csv(index=False).encode("utf-8"), file_name="monitoreo_predicciones.csv", mime="text/csv")
 
 with st.expander("Reporte por período"):
@@ -112,5 +120,5 @@ with st.expander("Reporte por período"):
     if periodic_report.empty:
         st.warning("No hay fechas válidas para construir el reporte periódico.")
     else:
-        st.dataframe(periodic_report, use_container_width=True, hide_index=True)
+        st.dataframe(periodic_report, width="stretch", hide_index=True)
 

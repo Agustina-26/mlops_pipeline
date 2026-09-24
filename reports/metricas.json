@@ -1,0 +1,74 @@
+{
+  "model_name": "RandomForest",
+  "version": "2.0.0",
+  "threshold_no_pago": 0.3873766035286082,
+  "selection": "Máxima average precision de no pago en validación temporal",
+  "threshold_selection": "Máximo F1 de no pago en validación; no optimizado en test",
+  "test": {
+    "roc_auc": 0.6498998581323542,
+    "average_precision_no_pago": 0.06272013675389439,
+    "precision_no_pago": 0.0650994575045208,
+    "recall_no_pago": 0.5217391304347826,
+    "f1_no_pago": 0.1157556270096463,
+    "prevalencia_no_pago": 0.03204830469112866,
+    "matriz_confusion_no_pago": [
+      [
+        1567,
+        517
+      ],
+      [
+        33,
+        36
+      ]
+    ]
+  },
+  "validation_at_selected_threshold": {
+    "roc_auc": 0.7253760310528871,
+    "average_precision_no_pago": 0.13349127416849604,
+    "precision_no_pago": 0.09632224168126094,
+    "recall_no_pago": 0.6043956043956044,
+    "f1_no_pago": 0.1661631419939577,
+    "prevalencia_no_pago": 0.04228624535315985,
+    "matriz_confusion_no_pago": [
+      [
+        1545,
+        516
+      ],
+      [
+        36,
+        55
+      ]
+    ]
+  },
+  "data_sha256": "6a92fc37e83cb6d94413800b966ad4f348433986a48724bba6a91bb6fb0b511e",
+  "python": "3.12.14",
+  "sklearn": "1.9.1",
+  "excluded_invalid_rows": 0,
+  "partitions": {
+    "train": {
+      "rows": 6458,
+      "start": "2024-11-26 09:17:04",
+      "end": "2025-04-25 17:41:12",
+      "no_payment": 351
+    },
+    "validation": {
+      "rows": 2152,
+      "start": "2025-04-25 17:58:38",
+      "end": "2025-07-12 08:34:02",
+      "no_payment": 91
+    },
+    "test": {
+      "rows": 2153,
+      "start": "2025-07-12 08:51:24",
+      "end": "2026-04-26 18:43:52",
+      "no_payment": 69
+    }
+  },
+  "limitations": [
+    "Evaluación retrospectiva; requiere validación prospectiva.",
+    "Disponibilidad de todas las variables al otorgar crédito debe confirmarse.",
+    "F1 no representa costos económicos ni calibra probabilidades.",
+    "El EDA original explora toda la base: test tiene exposición exploratoria previa."
+  ],
+  "artifact_sha256": "34f53d4819d26fb4b07391e72aacbe02e19fb0ea44ad9e6d21a88ba36bd6b18f"
+}

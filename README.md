@@ -1,68 +1,87 @@
 # Predicción de pago a tiempo — Proyecto MLOps
 
-## Caso de negocio
+Proyecto académico para estimar `Pago_atiempo`. La clase de interés para evaluación es **no pago (0)**. Se conserva la etiqueta original en las respuestas de la API.
 
-El proyecto estima si un crédito será pagado a tiempo (`Pago_atiempo`). El objetivo es apoyar la evaluación de riesgo crediticio e identificar operaciones con mayor probabilidad de no pago.
+## Preparación
 
-Se entrenó un **Random Forest**, seleccionado al comparar modelos supervisados. La evaluación prioriza métricas de la clase minoritaria (no pago), especialmente PR-AUC y F1.
-
-## Flujo del proyecto
-
-| Etapa | Archivo principal |
-|---|---|
-| Carga y exploración | `src/Cargar_Datos.ipynb` y `src/Comprensión_eda.ipynb` |
-| Ingeniería de características | `src/ft_engineering.py` |
-| Entrenamiento y evaluación | `src/model_training_evaluation.py` |
-| Monitoreo de data drift | `src/model_monitoring.py` |
-| Aplicación de monitoreo | `src/app.py` |
-| API de predicción batch | `src/model_deploy.py` |
-
-El modelo almacenado en `src/random_forest_v1.joblib` excluye `puntaje` por posible fuga de información detectada durante el EDA.
-
-## Ejecución local
-
-Instalar dependencias:
+Python **3.12**. Desde la raíz del proyecto:
 
 ```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
-Entrenar o regenerar el modelo:
+En Linux/macOS activar con `source .venv/bin/activate`. Las dependencias directas están fijadas a las versiones usadas en la comprobación local. No se incluyen credenciales.
+
+## Archivos y ejecución
+
+| Etapa | Archivo |
+|---|---|
+| Carga portable Excel a CSV | `src/Cargar_Datos.ipynb` |
+| EDA | `src/Comprensión_eda.ipynb` — original recuperado y ejecutado |
+| Transformaciones | `src/ft_engineering.py` |
+| Comparación y entrenamiento | `src/model_training_evaluation.py` |
+| Interpretación de resultados | `src/Evaluacion_modelos.ipynb` |
+| Métricas y curvas | `reports/` |
+| Modelo seleccionado | `src/model.joblib` y `src/model_metadata.json` |
+| API | `src/model_deploy.py` |
+| Monitoreo | `src/model_monitoring.py` y `src/app.py` |
 
 ```powershell
 python src/model_training_evaluation.py
+python -m pytest -q
+python scripts/validate_notebooks.py
+python -m uvicorn model_deploy:app --app-dir src --reload
 ```
 
-Iniciar la aplicación de monitoreo:
+La API ofrece documentación interactiva en http://127.0.0.1:8000/docs. Solo cargar artefactos joblib de origen confiable.
+
+## Evaluación reproducible
+
+Comparación temporal 60/20/20, sin compartir timestamps entre particiones. Baseline, regresión logística, Random Forest e HistGradientBoosting. Selección por AP de no pago en validación; umbral por F1 en validación. No se reajusta el modelo elegido después de fijar el umbral. Test no participa en selección. El EDA original explora la base completa: por esa exposición previa, esta es una evaluación retrospectiva, no un test externo completamente inédito. Imputación, escalado y encoding se ajustan solo en entrenamiento.
+
+Resultado ejecutado: **RandomForest**, ROC-AUC **0.650**, AP **0.063**, F1 **0.116**, precision **6.5%**, recall **52.2%** para no pago. Prevalencia de referencia en test: **3.2%**.
+
+Se detectan 36 de 69 casos de no pago, con 517 falsas alarmas. Es un rendimiento limitado: no se afirma que esté listo para decisiones crediticias reales. `puntaje` se excluye preventivamente por posible fuga; debe confirmarse con el origen de los datos la disponibilidad de todas las variables al otorgar el crédito. El umbral optimiza F1, no costos monetarios. El modelo no está calibrado.
+
+El script guarda hashes de datos/modelo, versiones, particiones, métricas y figuras. Ver `reports/comparacion_validacion.csv`, `reports/metricas.json` y el notebook de evaluación. Cambios posteriores deben validarse sin optimizar contra este test ya observado.
+
+## API batch
+
+- `GET /health`: verifica carga del modelo (503 si falla).
+- `GET /model-info`: lista columnas necesarias y umbral.
+- `POST /predict`: JSON `{"records": [...]}`, con una lista no vacía de registros.
+- `POST /predict/csv`: archivo CSV mediante el campo `file`.
+
+Cada resultado incluye etiqueta, predicción, probabilidad de pago y no pago. El esquema de columnas se consulta en `/model-info`. La API y el dashboard usan **el mismo artefacto y umbral**.
+
+Para generar una solicitud de ejemplo a partir de los datos del proyecto:
+
+```powershell
+python scripts/create_example.py
+curl.exe -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" --data-binary "@examples/request.json"
+```
+
+## Docker
+
+```powershell
+docker build -t api-pago-tiempo .
+docker run --rm -p 8000:8000 api-pago-tiempo
+```
+
+Docker no está instalado en el entorno de esta corrección: el build local no fue comprobado. El workflow de GitHub está preparado para construir la imagen y comprobar `/health` cuando se suban los cambios.
+
+## Streamlit y drift
 
 ```powershell
 python -m streamlit run src/app.py
 ```
 
-Iniciar la API:
+Referencia: período de entrenamiento registrado en metadata; período actual por defecto: test. Se puede cargar un CSV con las columnas originales. Se calculan KS/PSI para numéricas, chi-cuadrado para categorías y distancia Jensen-Shannon. Los umbrales son configurables. Los p-valores se usan como señales exploratorias sin corrección por comparaciones múltiples; una alerta no demuestra por sí sola pérdida de rendimiento. El reporte por período agrupa fechas, pero no constituye una tarea programada.
 
-```powershell
-Set-Location src
-python -m uvicorn model_deploy:app --reload
-```
+## Git y automatización
 
-La documentación interactiva queda disponible en `http://127.0.0.1:8000/docs`.
+Trabajar en una rama nueva y abrir un PR hacia `main`. `.github/workflows/ci.yml` ejecuta pruebas, valida notebooks y comprueba Docker. La ejecución en GitHub está pendiente de subir esta versión. SonarCloud no está configurado; no se atribuye ese crédito extra.
 
-## API batch
-
-- `GET /health`: estado del servicio y disponibilidad del modelo.
-- `POST /predict`: recibe JSON con una lista de registros.
-- `POST /predict/csv`: recibe un archivo CSV con múltiples registros.
-
-Cada predicción devuelve la clase estimada y las probabilidades de pago a tiempo y no pago.
-
-## Docker
-
-La imagen utiliza `requirements-api.txt`, un conjunto reducido de dependencias para la API. `requirements.txt` se conserva para ejecutar el análisis, Streamlit y los notebooks localmente.
-
-```powershell
-docker build -t api-pago-tiempo .
-docker run --name api-pago-tiempo-container -p 8000:8000 api-pago-tiempo
-```
-
-Luego se puede consultar `http://127.0.0.1:8000/docs`.
+El archivo antiguo `src/random_forest_v1.joblib` se conserva como versión histórica; la API y Streamlit usan exclusivamente `src/model.joblib`.

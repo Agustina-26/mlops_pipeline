@@ -18,7 +18,7 @@ from ft_engineering import DATE_COLUMN, TARGET, create_features
 
 
 # En local se encuentra junto a este script; en Docker ambos se copian a /app.
-MODEL_PATH = Path(os.getenv("MODEL_PATH", str(Path(__file__).with_name("random_forest_v1.joblib"))))
+MODEL_PATH = Path(os.getenv("MODEL_PATH", str(Path(__file__).with_name("model.joblib"))))
 REQUIRED_RAW_COLUMNS = [
     "tipo_credito", "fecha_prestamo", "capital_prestado", "plazo_meses", "edad_cliente",
     "tipo_laboral", "salario_cliente", "total_otros_prestamos", "cuota_pactada",
@@ -37,7 +37,7 @@ class BatchRequest(BaseModel):
 
 app = FastAPI(
     title="API de predicción crediticia",
-    version="1.0.1",
+    version="2.0.0",
     description="Servicio batch para estimar la probabilidad de pago a tiempo.",
 )
 
@@ -46,7 +46,7 @@ app = FastAPI(
 def load_model():
     """Carga el artefacto una sola vez durante la vida del servidor."""
     if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"No se encontró el modelo en '{MODEL_PATH}'. Ejecuta: python train_model.py")
+        raise FileNotFoundError(f"No se encontró el modelo en '{MODEL_PATH}'. Ejecuta: python src/model_training_evaluation.py")
     return joblib.load(MODEL_PATH)
 
 
@@ -74,7 +74,7 @@ def predict_batch(raw_data: pd.DataFrame) -> list[dict[str, Any]]:
     classes = list(model.classes_)
     no_payment_probability = probabilities[:, classes.index(0)]
     on_time_probability = probabilities[:, classes.index(1)]
-    predictions = model.predict(features)
+    predictions = np.where(no_payment_probability >= model.threshold_no_pago_, 0, 1)
 
     return [
         {
@@ -91,13 +91,17 @@ def predict_batch(raw_data: pd.DataFrame) -> list[dict[str, Any]]:
 @app.get("/health")
 def health() -> dict[str, str]:
     """Indica si el artefacto requerido por el servicio está disponible."""
-    return {"status": "ok" if MODEL_PATH.exists() else "model_not_found", "model_path": str(MODEL_PATH)}
+    try:
+        load_model()
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="Modelo no disponible o incompatible.") from error
+    return {"status": "ok"}
 
 
 @app.get("/model-info")
 def model_info() -> dict[str, Any]:
     """Expone información mínima para clientes de la API."""
-    return {"model": "Random Forest V1.0.1", "required_columns": REQUIRED_RAW_COLUMNS, "batch_supported": True}
+    return {"model": load_model().model_name_, "threshold_no_pago": load_model().threshold_no_pago_, "required_columns": REQUIRED_RAW_COLUMNS, "batch_supported": True}
 
 
 @app.post("/predict")
@@ -115,7 +119,7 @@ async def predict_csv(file: UploadFile = File(...)) -> dict[str, Any]:
     try:
         content = await file.read()
         raw_data = pd.read_csv(io.StringIO(content.decode("utf-8")))
-    except (UnicodeDecodeError, pd.errors.ParserError) as error:
+    except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as error:
         raise HTTPException(status_code=422, detail=f"No se pudo leer el CSV: {error}") from error
     predictions = predict_batch(raw_data)
     return {"filename": file.filename, "count": len(predictions), "predictions": predictions}
