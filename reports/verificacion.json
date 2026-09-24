@@ -1,0 +1,28 @@
+{
+  "verification": "Local, 2026-09-24",
+  "tests": {
+    "passed": 7,
+    "failed": 0,
+    "warning": "Deprecación de httpx en Starlette; no impide las pruebas."
+  },
+  "notebooks": {
+    "Cargar_Datos.ipynb": {
+      "cells": 4,
+      "executed_code_cells": 2,
+      "errors": 0
+    },
+    "Comprensión_eda.ipynb": {
+      "cells": 43,
+      "executed_code_cells": 18,
+      "errors": 0
+    },
+    "Evaluacion_modelos.ipynb": {
+      "cells": 7,
+      "executed_code_cells": 3,
+      "errors": 0
+    }
+  },
+  "docker": "No ejecutado: Docker no está instalado.",
+  "github_actions": "Workflow preparado; ejecución remota pendiente.",
+  "sonarcloud": "No configurado."
+}

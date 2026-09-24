@@ -120,7 +120,7 @@ def create_features(data: pd.DataFrame, include_possible_leakage: bool = False) 
 
     if not include_possible_leakage:
         df = df.drop(columns=_available(df, POSSIBLE_LEAKAGE_COLUMNS))
-    return df
+    return df.replace([np.inf, -np.inf], np.nan)
 
 
 def split_train_test(data: pd.DataFrame, test_size: float = 0.20) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
@@ -129,7 +129,9 @@ def split_train_test(data: pd.DataFrame, test_size: float = 0.20) -> tuple[pd.Da
         raise ValueError("test_size debe estar entre 0 y 1.")
 
     df = create_features(data)
-    df = df.dropna(subset=[TARGET]).sort_values(DATE_COLUMN, na_position="first").reset_index(drop=True)
+    if DATE_COLUMN not in df:
+        raise ValueError(f"Falta {DATE_COLUMN} para la separación temporal.")
+    df = df.loc[df[TARGET].isin([0, 1])].dropna(subset=[DATE_COLUMN]).sort_values(DATE_COLUMN).reset_index(drop=True)
     cutoff = int(len(df) * (1 - test_size))
     if cutoff == 0 or cutoff == len(df):
         raise ValueError("No hay suficientes registros para crear train y test.")

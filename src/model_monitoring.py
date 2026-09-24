@@ -23,10 +23,15 @@ def _proportions(values: pd.Series, categories: pd.Index) -> np.ndarray:
 
 def _numeric_distribution(reference: pd.Series, current: pd.Series, bins: int = 10) -> tuple[np.ndarray, np.ndarray]:
     """Distribuciones basadas en deciles de referencia."""
-    edges = np.unique(reference.quantile(np.linspace(0, 1, bins + 1)).to_numpy())
-    if len(edges) < 2:
-        return np.array([1.0]), np.array([1.0])
-    edges[0], edges[-1] = -np.inf, np.inf
+    quantiles = np.unique(reference.quantile(np.linspace(0, 1, bins + 1)).to_numpy())
+    if len(quantiles) == 1:
+        # Una referencia constante también puede cambiar: conservar una caja central.
+        value = quantiles[0]
+        epsilon = max(abs(value) * 1e-9, 1e-9)
+        edges = np.array([-np.inf, value-epsilon, value+epsilon, np.inf])
+    else:
+        # Midpoints preserva dos cajas para variables binarias; no colapsarlas en una.
+        edges = np.r_[-np.inf, (quantiles[:-1]+quantiles[1:])/2, np.inf]
     ref_counts = np.histogram(reference, bins=edges)[0]
     cur_counts = np.histogram(current, bins=edges)[0]
     ref_probs = (ref_counts + 0.5) / (ref_counts.sum() + 0.5 * len(ref_counts))
@@ -44,11 +49,13 @@ def population_stability_index(reference: pd.Series, current: pd.Series, bins: i
     return float(np.sum((cur_probs - ref_probs) * np.log(cur_probs / ref_probs)))
 
 
-def _drift_status(psi: float, js_divergence: float, p_value: float, thresholds: dict) -> str:
-    if (pd.notna(psi) and psi >= thresholds["psi_alert"]) or (pd.notna(js_divergence) and js_divergence >= thresholds["js_alert"]):
+def _drift_status(psi: float, js_distance: float, p_value: float, thresholds: dict) -> str:
+    if (pd.notna(psi) and psi >= thresholds["psi_alert"]) or (pd.notna(js_distance) and js_distance >= thresholds["js_alert"]):
         return "Alerta"
     if (pd.notna(psi) and psi >= thresholds["psi_warning"]) or (pd.notna(p_value) and p_value < thresholds["alpha"]):
         return "Revisar"
+    if pd.isna(psi) and pd.isna(js_distance) and pd.isna(p_value):
+        return "Sin datos"
     return "Estable"
 
 
@@ -56,10 +63,10 @@ def _numeric_metrics(reference: pd.Series, current: pd.Series) -> dict:
     ref_valid = pd.to_numeric(reference, errors="coerce").dropna()
     cur_valid = pd.to_numeric(current, errors="coerce").dropna()
     if len(ref_valid) < 2 or len(cur_valid) < 2:
-        return {"ks_statistic": np.nan, "p_value": np.nan, "psi": np.nan, "js_divergence": np.nan}
+        return {"ks_statistic": np.nan, "p_value": np.nan, "psi": np.nan, "js_distance": np.nan}
     ks = ks_2samp(ref_valid, cur_valid)
     ref_probs, cur_probs = _numeric_distribution(ref_valid, cur_valid)
-    return {"ks_statistic": float(ks.statistic), "p_value": float(ks.pvalue), "psi": population_stability_index(ref_valid, cur_valid), "js_divergence": float(jensenshannon(ref_probs, cur_probs))}
+    return {"ks_statistic": float(ks.statistic), "p_value": float(ks.pvalue), "psi": population_stability_index(ref_valid, cur_valid), "js_distance": float(jensenshannon(ref_probs, cur_probs))}
 
 
 def _categorical_metrics(reference: pd.Series, current: pd.Series) -> dict:
@@ -74,7 +81,7 @@ def _categorical_metrics(reference: pd.Series, current: pd.Series) -> dict:
         chi2, p_value = np.nan, np.nan
     ref_probs, cur_probs = _proportions(ref_values, categories), _proportions(cur_values, categories)
     psi = float(np.sum((cur_probs - ref_probs) * np.log(cur_probs / ref_probs)))
-    return {"chi2_statistic": chi2, "p_value": p_value, "psi": psi, "js_divergence": float(jensenshannon(ref_probs, cur_probs))}
+    return {"chi2_statistic": chi2, "p_value": p_value, "psi": psi, "js_distance": float(jensenshannon(ref_probs, cur_probs))}
 
 
 def detect_data_drift(reference_data: pd.DataFrame, current_data: pd.DataFrame, numeric_columns: Iterable[str] | None = None, categorical_columns: Iterable[str] | None = None, thresholds: dict | None = None) -> pd.DataFrame:
@@ -94,10 +101,10 @@ def detect_data_drift(reference_data: pd.DataFrame, current_data: pd.DataFrame, 
     rows = []
     for col in numeric_columns:
         metric = _numeric_metrics(reference_data[col], current_data[col])
-        rows.append({"variable": col, "tipo": "Numérica", "ks_statistic": metric["ks_statistic"], "chi2_statistic": np.nan, "p_value": metric["p_value"], "psi": metric["psi"], "js_divergence": metric["js_divergence"], "estado": _drift_status(metric["psi"], metric["js_divergence"], metric["p_value"], thresholds)})
+        rows.append({"variable": col, "tipo": "Numérica", "ks_statistic": metric["ks_statistic"], "chi2_statistic": np.nan, "p_value": metric["p_value"], "psi": metric["psi"], "js_distance": metric["js_distance"], "estado": _drift_status(metric["psi"], metric["js_distance"], metric["p_value"], thresholds)})
     for col in categorical_columns:
         metric = _categorical_metrics(reference_data[col], current_data[col])
-        rows.append({"variable": col, "tipo": "Categórica", "ks_statistic": np.nan, "chi2_statistic": metric["chi2_statistic"], "p_value": metric["p_value"], "psi": metric["psi"], "js_divergence": metric["js_divergence"], "estado": _drift_status(metric["psi"], metric["js_divergence"], metric["p_value"], thresholds)})
+        rows.append({"variable": col, "tipo": "Categórica", "ks_statistic": np.nan, "chi2_statistic": metric["chi2_statistic"], "p_value": metric["p_value"], "psi": metric["psi"], "js_distance": metric["js_distance"], "estado": _drift_status(metric["psi"], metric["js_distance"], metric["p_value"], thresholds)})
     return pd.DataFrame(rows).sort_values(["estado", "psi"], ascending=[True, False], na_position="last").reset_index(drop=True)
 
 
@@ -136,7 +143,7 @@ def build_prediction_table(model, raw_data: pd.DataFrame) -> pd.DataFrame:
     probabilities = model.predict_proba(features)
     result = raw_data.copy().reset_index(drop=True)
     result.insert(0, "id_registro", np.arange(1, len(result) + 1))
-    result["prediccion"] = model.predict(features)
+    result["prediccion"] = np.where(probabilities[:, list(model.classes_).index(0)] >= model.threshold_no_pago_, 0, 1)
     result["probabilidad_no_pago"] = probabilities[:, list(model.classes_).index(0)]
     return result
 
